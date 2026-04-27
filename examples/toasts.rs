@@ -48,6 +48,8 @@ struct DesiredToastPosition(ToastPosition);
 #[derive(Resource)]
 struct LogLevelFilter(Level);
 
+const LOG_LEVELS: [Level; 3] = [Level::INFO, Level::WARN, Level::ERROR];
+
 impl std::fmt::Display for LogLevelFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -57,17 +59,10 @@ impl std::fmt::Display for LogLevelFilter {
 #[derive(Resource)]
 struct LogMessageReceiver(SyncCell<mpsc::Receiver<LogMessage>>);
 
-#[derive(Message)]
 struct LogMessage {
     level: Level,
     message: String,
 }
-
-#[derive(Component, Default, Clone)]
-struct LogLevelFilterButton;
-
-#[derive(Component, Default, Clone)]
-struct DesiredToastPositionButton;
 
 #[derive(Component, Default, Clone)]
 struct ToastDurationSlider;
@@ -103,6 +98,26 @@ fn log_layer(app: &mut App) -> Option<BoxedLayer> {
     Some(layer.boxed())
 }
 
+fn update_button_group_self_state<T>(
+    trigger: On<ButtonGroupButtonActivated<T>>,
+    mut button_variant: Query<(Entity, &mut ButtonVariant)>,
+    children: Query<&Children>,
+) where
+    T: ToString + PartialEq + Clone + Send + Sync + 'static,
+{
+    for child in children.iter_descendants(trigger.entity) {
+        if let Ok((entity, _)) = button_variant.get(child) {
+            if let Ok((_, mut variant)) = button_variant.get_mut(entity) {
+                *variant = if entity == trigger.button {
+                    ButtonVariant::Primary
+                } else {
+                    ButtonVariant::Normal
+                }
+            }
+        }
+    }
+}
+
 fn main() -> AppExit {
     App::new()
         .add_plugins(DefaultPlugins.set(LogPlugin {
@@ -117,68 +132,6 @@ fn main() -> AppExit {
         .add_plugins(ToastsPlugin)
         .add_systems(Startup, setup)
         .run()
-}
-
-fn log_filter(level_filter: &LogLevelFilter, level: Level) -> impl Scene {
-    let variant = if level_filter.0 == level {
-        ButtonVariant::Primary
-    } else {
-        ButtonVariant::Normal
-    };
-    bsn! {
-        LogLevelFilterButton
-        button(ButtonProps {
-            variant: {variant},
-            caption: Box::new(bsn_list! [ Text({level.to_string()}) ThemedText]),
-            ..default()
-        })
-        on(move |
-            trigger: On<Activate>,
-            mut level_filter: ResMut<LogLevelFilter>,
-            mut buttons: Query<(Entity, &mut ButtonVariant), With<LogLevelFilterButton>>| {
-            level_filter.0 = level;
-            for (entity, mut button) in &mut buttons {
-                *button = if trigger.entity == entity {
-                    ButtonVariant::Primary
-                } else {
-                    ButtonVariant::Normal
-                };
-            }
-        })
-    }
-}
-
-fn toast_position_button(
-    desired_position: &DesiredToastPosition,
-    position: ToastPosition,
-) -> impl Scene {
-    let variant = if desired_position.0 == position {
-        ButtonVariant::Primary
-    } else {
-        ButtonVariant::Normal
-    };
-    bsn! {
-        DesiredToastPositionButton
-        button(ButtonProps {
-            variant: {variant},
-            caption: Box::new(bsn_list! [ Text({position.to_string()}) ThemedText]),
-            ..default()
-        })
-        on(move |
-            trigger: On<Activate>,
-            mut desired_position: ResMut<DesiredToastPosition>,
-            mut buttons: Query<(Entity, &mut ButtonVariant), With<DesiredToastPositionButton>>| {
-            desired_position.0 = position;
-            for (entity, mut button) in &mut buttons {
-
-                *button = if trigger.entity == entity {
-                    ButtonVariant::Primary
-                } else {
-                    ButtonVariant::Normal
-                };
-            }
-        })
-    }
 }
 
 fn setup(
@@ -204,22 +157,13 @@ fn setup(
                 justify_content: JustifyContent::Center,
                 column_gap: px(10),
             }
-            Children[
-                (button_group(ToastPosition::variants(), None)
-                on(|
-                    trigger: On<ButtonGroupButtonActivated<ToastPosition>>,
-                    mut desired_toast_position: ResMut<DesiredToastPosition>,
-                    mut button_variant: Query<(Entity, &mut ButtonVariant)>| {
+            Children[(
+                button_group(ToastPosition::variants(), Some(&toast_position.0))
+                on(update_button_group_self_state::<ToastPosition>)
+                on(|trigger: On<ButtonGroupButtonActivated<ToastPosition>>, mut desired_toast_position: ResMut<DesiredToastPosition>| {
                     desired_toast_position.0 = trigger.value;
-                    for (entity, mut variant) in &mut button_variant {
-                        *variant = if entity == trigger.button {
-                            ButtonVariant::Primary
-                        } else {
-                            ButtonVariant::Normal
-                        };
-                    }
-                }))
-            ]
+                })
+            )]
         ), (
             Text("Toast duration") ThemedText
         ), (
@@ -259,11 +203,13 @@ fn setup(
                 justify_content: JustifyContent::Center,
                 column_gap: px(10),
             }
-            Children[
-                log_filter(&level_filter, Level::INFO),
-                log_filter(&level_filter, Level::WARN),
-                log_filter(&level_filter, Level::ERROR),
-            ]
+            Children[(
+                button_group(LOG_LEVELS, Some(&level_filter.0))
+                on(update_button_group_self_state::<Level>)
+                on(|trigger: On<ButtonGroupButtonActivated<Level>>, mut log_level_filter: ResMut<LogLevelFilter>,| {
+                    log_level_filter.0 = trigger.value;
+                })
+            )]
         ),
         menu_divider(),
         (
@@ -304,9 +250,6 @@ fn setup(
     )]);
 }
 
-/// TODO:
-/// - Setting initial value
-/// - Somehow implement the on-click logic in the parent Node only
 fn button_group<T>(values: impl IntoIterator<Item = T>, selected: Option<&T>) -> impl Scene
 where
     T: ToString + PartialEq + Clone + Send + Sync + 'static,
