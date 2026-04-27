@@ -1,0 +1,12 @@
+[package]
+name = "bevy_toasts_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+accesskit = "0.24.0"
+bevy = { git = "https://www.github.com/bevyengine/bevy.git", branch = "main", features = [
+  "ui",
+  "experimental_bevy_feathers",
+] }
+tracing = "0.1.44"
