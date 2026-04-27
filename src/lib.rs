@@ -95,12 +95,10 @@ impl Toast {
 
         let parent = match container {
             Some(container) => container,
-            None => {
-                let mut commands = world.commands();
-                let mut container = commands.spawn_empty();
-                container.apply_scene(spawn_container(this_position.into()));
-                container.id()
-            }
+            None => world
+                .commands()
+                .spawn_scene(spawn_container(this_position.into()))
+                .id(),
         };
 
         world.commands().entity(entity).set_parent_in_place(parent);
@@ -287,7 +285,6 @@ pub fn toast(props: ToastProps) -> impl Scene {
         #Toast
         :toast_root
         Pickable::IGNORE
-        // BorderColor::all(Color::BLACK)
         template_value(props.variant)
         Toast {
             message: { props.message.clone() },
